@@ -1,0 +1,12 @@
+[shaders]
+as names = "default";
+i spirv = 0;
+i glsl = 1;
+i hlsl = 2;
+i msl = 3;
+
+[shaders.default]
+s path = "default.hlsl";
+s ventry = "vsmain";
+s fentry = "fsmain";
+i medium = @shaders:hlsl;

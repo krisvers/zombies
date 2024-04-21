@@ -1,0 +1,3 @@
+[config]
+s asset_dir = "assets";
+s shader_dir = "assets/shaders";
