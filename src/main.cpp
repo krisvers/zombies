@@ -199,7 +199,9 @@ struct Context {
 			return 1;
 		}
 
-		koml_symbol_t* assetDirectory = koml_table_symbol(&config.koml, "assetDirectory");
+		koml_table_print(&config.koml);
+
+		koml_symbol_t* assetDirectory = koml_table_symbol(&config.koml, "config:assetDirectory");
 		if (assetDirectory != nullptr) {
 			if (assetDirectory->type == KOML_TYPE_STRING) {
 				config.assetDirectory = std::string(assetDirectory->data.string, assetDirectory->stride);
@@ -208,7 +210,7 @@ struct Context {
 			}
 		}
 
-		koml_symbol_t* shaderDirectory = koml_table_symbol(&config.koml, "shaderDirectory");
+		koml_symbol_t* shaderDirectory = koml_table_symbol(&config.koml, "config:shaderDirectory");
 		if (shaderDirectory != nullptr) {
 			if (shaderDirectory->type == KOML_TYPE_STRING) {
 				config.shaderDirectory = std::string(shaderDirectory->data.string, shaderDirectory->stride);
@@ -218,9 +220,11 @@ struct Context {
 		}
 
 		if (loadConfig(config.shaderKOML, config.shaderDirectory + "/shaders.koml") != 0) {
-			std::cerr << "Failed to load shaders.koml" << std::endl;
+			std::cerr << "Failed to load " + config.shaderDirectory + "/shaders.koml" << std::endl;
 			return 1;
 		}
+
+		koml_table_print(&config.shaderKOML);
 
 		loadShaders();
 
@@ -404,18 +408,21 @@ struct Context {
 		}
 	}
 
-	void loadShaders() {
-		koml_table_t& table = config.shaderKOML;
-		koml_symbol_t* vertexPath = koml_table_symbol(&table, "shaders.default.vertexPath");
-		if (vertexPath == nullptr) {
-			std::cerr << "Failed to find default shader in shaders.koml" << std::endl;
-			return;
+	bool loadShader(koml_table_t& table, std::string const& label, Shader& shader) {
+		koml_symbol_t* name = koml_table_symbol(&table, label + ":name");
+		if (name == nullptr) {
+			std::cerr << "Failed to find shader at label " << label << " in shaders.koml" << std::endl;
+			return false;
 		}
 
-		if (vertexPath->type != KOML_TYPE_STRING) {
-			std::cerr << "default shader in shaders.koml is not a table" << std::endl;
-			return;
+		if (name->type != KOML_TYPE_STRING) {
+			std::cerr << "Shader in shaders.koml is invalid" << std::endl;
+			return false;
 		}
+	}
+
+	void loadShaders() {
+		koml_table_t& table = config.shaderKOML;
 	}
 
 	Context() = default;
@@ -653,11 +660,7 @@ struct Player : public GameObject {
 };
 
 int main() {
-	// print current dir c++ style
-	if (!std::filesystem::is_regular_file("config.koml")) {
-		std::cerr << "Failed to find config.koml" << std::endl << "Current path is " << std::filesystem::current_path() << std::endl;
-		return -1;
-	}
+	std::string originalPath = std::filesystem::current_path();
 
 	glfwSetErrorCallback([](int error, const char* description) {
 		std::cerr << "GLFW Error: " << description << std::endl;
@@ -685,6 +688,12 @@ int main() {
 
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 	glfwSetCursorPos(window, 0, 0);
+
+	std::filesystem::current_path(originalPath);
+	if (!std::filesystem::is_regular_file("config.koml")) {
+		std::cerr << "Failed to find config.koml" << std::endl << "Current path is " << std::filesystem::current_path() << std::endl;
+		return -1;
+	}
 
 	Context context;
 	context.windowWidth = mode->width;

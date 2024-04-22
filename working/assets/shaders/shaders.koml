@@ -1,4 +1,5 @@
 [shaders.default]
+s name = "default";
 s vertexPath = "default.hlsl";
 s vertexEntry = "vsmain";
 s vertexMedium = "hlsl";

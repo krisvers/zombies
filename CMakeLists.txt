@@ -7,6 +7,10 @@ endif()
 
 project(zombies)
 
+if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+  set(MACOSX TRUE)
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 
 # Add the source files
@@ -16,12 +20,21 @@ file(GLOB SOURCES src/*.cpp)
 include_directories(include)
 include_directories(vendor/include)
 
-link_directories(vendor/vs)
-link_libraries(kgfx.lib kgfx_gh.lib glfw3.lib)
-link_libraries(d3d12.lib dxgi.lib dxguid.lib d3dcompiler.lib)
+if (WIN32)
+  link_directories(vendor/vs)
+  file(GLOB LIBRARIES "vendor/vs/*.lib")
+  file(GLOB LIBRARIES "vendor/vs/*.dll")
+  link_libraries(kgfx kgfx_gh glfw3)
+# link_libraries(d3d12.lib dxgi.lib dxguid.lib d3dcompiler.lib)
+elseif (MACOSX)
+  link_directories(vendor/macos)
+  file(GLOB LIBRARIES "vendor/macos/*.dylib")
+  link_libraries(kgfx kgfx_gh glfw3)
+endif()
 
 # Create the executable
 add_executable(zombies ${SOURCES})
+target_link_libraries(zombies ${LIBRARIES})
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET zombies PROPERTY CXX_STANDARD 20)
