@@ -49,8 +49,8 @@ extern "C" {
 void koml_symbol_print(koml_symbol_t* symbol);
 void koml_table_print(koml_table_t* table);
 int koml_table_load(koml_table_t* out_table, char* buffer, unsigned long long int buffer_length);
-koml_symbol_t* koml_table_symbol(koml_table_t* table, char* name);
-koml_symbol_t* koml_table_symbol_word(koml_table_t* table, char* name, unsigned long long int name_length);
+koml_symbol_t* koml_table_symbol(koml_table_t* table, const char* name);
+koml_symbol_t* koml_table_symbol_word(koml_table_t* table, const char* name, unsigned long long int name_length);
 int koml_table_destroy(koml_table_t* table);
 
 #ifdef __cplusplus
@@ -64,7 +64,7 @@ int koml_table_destroy(koml_table_t* table);
 #include <string.h>
 #include <ctype.h>
 
-static inline unsigned long long int koml_internal_hash(char* start, unsigned long long int length) {
+static inline unsigned long long int koml_internal_hash(const char* start, unsigned long long int length) {
 	unsigned long long int hash = 5381;
 
 	for (unsigned long long int i = 0; i < length; ++i) {
@@ -191,7 +191,7 @@ static inline char koml_internal_is_whitespace(char c) {
 	return 0;
 }
 
-static inline int koml_internal_wtoi(char* start, unsigned long long int length, unsigned int radix) {
+static inline int koml_internal_wtoi(const char* start, unsigned long long int length, unsigned int radix) {
 	int ret = 0;
 
 	for (unsigned long long int i = 0; i < length; ++i) {
@@ -201,7 +201,7 @@ static inline int koml_internal_wtoi(char* start, unsigned long long int length,
 	return ret;
 }
 
-static inline float koml_internal_wtof(char* start, unsigned long long int length) {
+static inline float koml_internal_wtof(const char* start, unsigned long long int length) {
 	(void) length;
 	return (float) strtod(start, NULL);
 }
@@ -232,7 +232,7 @@ static inline unsigned char koml_internal_is_num(char c) {
 	return ((isalnum(c) && !isalpha(c)) || c == '-');
 }
 
-static inline unsigned char koml_internal_wtotf(char* start, unsigned long long int length) {
+static inline unsigned char koml_internal_wtotf(const char* start, unsigned long long int length) {
 	if (length == 1) {
 		if (*start == '1' || *start == 't') {
 			return 1;
@@ -267,6 +267,7 @@ static inline void koml_printline(char* buffer, unsigned long long int line, uns
 			break;
 		}
 	}
+
 	while (*buffer != '\n' && *buffer != '\0') {
 		putc(*(buffer++), stdout);
 	}
@@ -1621,7 +1622,7 @@ int koml_table_load(koml_table_t* out_table, char* buffer, unsigned long long in
 	return 0;
 }
 
-koml_symbol_t* koml_table_symbol(koml_table_t* table, char* name) {
+koml_symbol_t* koml_table_symbol(koml_table_t* table, const char* name) {
 	unsigned long long int hash = koml_internal_hash(name, strlen(name));
 
 	for (unsigned long long int i = 0; i < table->length; ++i) {
@@ -1633,7 +1634,7 @@ koml_symbol_t* koml_table_symbol(koml_table_t* table, char* name) {
 	return NULL;
 }
 
-koml_symbol_t* koml_table_symbol_word(koml_table_t* table, char* name, unsigned long long int name_length) {
+koml_symbol_t* koml_table_symbol_word(koml_table_t* table, const char* name, unsigned long long int name_length) {
 	unsigned long long int hash = koml_internal_hash(name, name_length);
 
 	for (unsigned long long int i = 0; i < table->length; ++i) {

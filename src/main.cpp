@@ -10,6 +10,7 @@
 #include <tuple>
 #include <array>
 #include <filesystem>
+#include <unordered_map>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -126,10 +127,26 @@ struct GameObjectRenderable : public GameObject {
 	}
 };
 
+struct ContextConfig {
+	koml_table_t koml;
+	koml_table_t shaderKOML;
+	std::string assetDirectory = ".";
+	std::string shaderDirectory = ".";
+};
+
+struct Shader {
+	KGFXpipeline pipeline = nullptr;
+};
+
+struct ShaderStorage {
+	std::unordered_map<std::string, Shader> shaders;
+};
+
 struct Context {
 	KGFXcontext context = nullptr;
 	KGFXcommandlist commandList = nullptr;
 	KGFXpipeline basicPipeline = nullptr;
+	ContextConfig config;
 
 	Camera camera = {
 		.position = { 0, 0, 0 },
@@ -176,6 +193,36 @@ struct Context {
 
 		inited = true;
 		deinited = false;
+
+		if (loadConfig(config.koml, "config.koml") != 0) {
+			std::cerr << "Failed to load config.koml" << std::endl;
+			return 1;
+		}
+
+		koml_symbol_t* assetDirectory = koml_table_symbol(&config.koml, "assetDirectory");
+		if (assetDirectory != nullptr) {
+			if (assetDirectory->type == KOML_TYPE_STRING) {
+				config.assetDirectory = std::string(assetDirectory->data.string, assetDirectory->stride);
+			} else {
+				std::cerr << "assetDirectory in config.koml is not a string" << std::endl;
+			}
+		}
+
+		koml_symbol_t* shaderDirectory = koml_table_symbol(&config.koml, "shaderDirectory");
+		if (shaderDirectory != nullptr) {
+			if (shaderDirectory->type == KOML_TYPE_STRING) {
+				config.shaderDirectory = std::string(shaderDirectory->data.string, shaderDirectory->stride);
+			} else {
+				std::cerr << "shaderDirectory in config.koml is not a string" << std::endl;
+			}
+		}
+
+		if (loadConfig(config.shaderKOML, config.shaderDirectory + "/shaders.koml") != 0) {
+			std::cerr << "Failed to load shaders.koml" << std::endl;
+			return 1;
+		}
+
+		loadShaders();
 
 		if (kgfxCreateContext(KGFX_ANY_VERSION, kgfxWindowFromGLFW(window), &context) != KGFX_SUCCESS) {
 			std::cerr << "Failed to create KGFX context" << std::endl;
@@ -357,6 +404,20 @@ struct Context {
 		}
 	}
 
+	void loadShaders() {
+		koml_table_t& table = config.shaderKOML;
+		koml_symbol_t* vertexPath = koml_table_symbol(&table, "shaders.default.vertexPath");
+		if (vertexPath == nullptr) {
+			std::cerr << "Failed to find default shader in shaders.koml" << std::endl;
+			return;
+		}
+
+		if (vertexPath->type != KOML_TYPE_STRING) {
+			std::cerr << "default shader in shaders.koml is not a table" << std::endl;
+			return;
+		}
+	}
+
 	Context() = default;
 	Context(GLFWwindow* w) {
 		if (init(w) != 0) {
@@ -366,6 +427,34 @@ struct Context {
 
 	~Context() {
 		deinit();
+	}
+
+	static int loadConfig(koml_table_t& table, std::string const& path) {
+		FILE* fp = fopen(path.c_str(), "rb");
+		if (fp == nullptr) {
+			return 1;
+		}
+
+		fseek(fp, 0, SEEK_END);
+		usize size = ftell(fp);
+		fseek(fp, 0, SEEK_SET);
+
+		char* buffer = new char[size + 1];
+		if (fread(buffer, 1, size, fp) != size) {
+			std::cerr << "Failed to read " << path << std::endl;
+			return 1;
+		}
+
+		buffer[size] = '\0';
+		fclose(fp);
+
+		if (koml_table_load(&table, buffer, size) != 0) {
+			std::cerr << "Failed to load " << path << std::endl;
+			return 1;
+		}
+
+		delete[] buffer;
+		return 0;
 	}
 
 	static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -698,7 +787,6 @@ int main() {
 		mat4x4_rotate_Z(matrixMapped->view, matrixMapped->view, -context.camera.rotation[2]);
 		mat4x4_translate_in_place(matrixMapped->view, context.camera.position[0], -context.camera.position[1], context.camera.position[2]);
 
-		//mat4x4_ortho(matrixMapped->projection, -1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 100.0f);
 		mat4x4_perspective(matrixMapped->projection, context.camera.fov, context.camera.aspectRatio, context.camera.nearPlane, context.camera.farPlane);
 		matrixMapped->projection[1][1] *= -1;
 

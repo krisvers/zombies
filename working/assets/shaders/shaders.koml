@@ -1,12 +1,44 @@
-[shaders]
-as names = "default";
-i spirv = 0;
-i glsl = 1;
-i hlsl = 2;
-i msl = 3;
-
 [shaders.default]
-s path = "default.hlsl";
-s ventry = "vsmain";
-s fentry = "fsmain";
-i medium = @shaders:hlsl;
+s vertexPath = "default.hlsl";
+s vertexEntry = "vsmain";
+s vertexMedium = "hlsl";
+s fragmentPath = "default.hlsl";
+s fragmentEntry = "fsmain";
+s fragmentMedium = "hlsl";
+
+[shaders.default.description]
+s cullMode = "none";
+s frontFace = "ccw";
+s fillMode = "solid";
+s topology = "triangles";
+as bindingLabels = "shaders.default.description.binding";
+
+[shaders.default.description.binding]
+s inputRate = "vertex";
+as attributeLabels = "shaders.default.description.attributes.position", "shaders.default.description.attributes.normal", "shaders.default.description.attributes.color", "shaders.default.description.attributes.texcoord";
+s bindpoint = "vertex";
+i binding = 0;
+
+[shaders.default.description.attributes.position]
+s semanticName = "POSITION";
+i semanticIndex = 0;
+s type = "float3";
+i location = 0;
+
+[shaders.default.description.attributes.normal]
+s semanticName = "NORMAL";
+i semanticIndex = 0;
+s type = "float3";
+i location = 1;
+
+[shaders.default.description.attributes.color]
+s semanticName = "COLOR";
+i semanticIndex = 0;
+s type = "float3";
+i location = 2;
+
+[shaders.default.description.attributes.texcoord]
+s semanticName = "TEXCOORD";
+i semanticIndex = 0;
+s type = "float2";
+i location = 3;
