@@ -138,6 +138,69 @@ struct Shader {
 	KGFXpipeline pipeline = nullptr;
 };
 
+struct ShaderDescriptionAttributeConfig {
+	char* semanticName;
+	int semanticIndex;
+	char* type;
+	int location;
+};
+
+struct ShaderDescriptionBindingConfig {
+	char* inputRate;
+	std::vector<ShaderDescriptionAttributeConfig> attributes;
+	char* bindpoint;
+	int binding;
+};
+
+struct ShaderDescriptionConfig {
+	char* cullMode;
+	char* frontFace;
+	char* fillMode;
+	char* topology;
+	std::vector<ShaderDescriptionBindingConfig> bindings;
+};
+
+struct ShaderConfig {
+	char* name;
+	char* vertexPath;
+	char* vertexEntry;
+	char* vertexMedium;
+	char* fragmentPath;
+	char* fragmentEntry;
+	char* fragmentMedium;
+
+	ShaderDescriptionConfig description;
+};
+
+using ShaderDescriptionAttributeConfigParsed = KGFXpipelineattribute;
+
+struct ShaderDescriptionBindingConfigParsed {
+	KGFXinputrate inputRate;
+	std::vector<ShaderDescriptionAttributeConfigParsed> attributes;
+	KGFXbindpoint bindpoint;
+	u32 binding;
+};
+
+struct ShaderDescriptionConfigParsed {
+	KGFXcullmode cullMode;
+	KGFXfrontface frontFace;
+	KGFXfillmode fillMode;
+	KGFXtopology topology;
+	std::vector<ShaderDescriptionBindingConfigParsed> bindings;
+};
+
+struct ShaderConfigParsed {
+	char* name;
+	char* vertexPath;
+	char* vertexEntry;
+	KGFXshadermedium vertexMedium;
+	char* fragmentPath;
+	char* fragmentEntry;
+	KGFXshadermedium fragmentMedium;
+
+	ShaderDescriptionConfigParsed description;
+};
+
 struct ShaderStorage {
 	std::unordered_map<std::string, Shader> shaders;
 };
@@ -147,6 +210,7 @@ struct Context {
 	KGFXcommandlist commandList = nullptr;
 	KGFXpipeline basicPipeline = nullptr;
 	ContextConfig config;
+	ShaderStorage shaderStorage;
 
 	Camera camera = {
 		.position = { 0, 0, 0 },
@@ -226,7 +290,13 @@ struct Context {
 
 		koml_table_print(&config.shaderKOML);
 
-		loadShaders();
+		if (!loadShaders()) {
+			std::cerr << "Failed to load shaders" << std::endl;
+			return 1;
+		}
+
+		std::cerr << "Not finished" << std::endl;
+		return 1;
 
 		if (kgfxCreateContext(KGFX_ANY_VERSION, kgfxWindowFromGLFW(window), &context) != KGFX_SUCCESS) {
 			std::cerr << "Failed to create KGFX context" << std::endl;
@@ -240,92 +310,6 @@ struct Context {
 		}
 
 		addForDestruction(reinterpret_cast<KGFXdestroyfunc>(kgfxDestroyCommandList), commandList);
-
-		char* shaderSource = nullptr;
-		usize shaderSourceLength = 0;
-		{
-			FILE* file = fopen("./assets/shaders/basic.hlsl", "rb");
-			if (file == nullptr) {
-				std::cerr << "Failed to open shader file" << std::endl;
-				return 1;
-			}
-
-			fseek(file, 0, SEEK_END);
-			shaderSourceLength = ftell(file);
-			fseek(file, 0, SEEK_SET);
-
-			shaderSource = new char[shaderSourceLength + 1];
-			fread(shaderSource, 1, shaderSourceLength, file);
-			shaderSource[shaderSourceLength] = '\0';
-
-			fclose(file);
-		}
-
-		KGFXshaderdesc shaderDesc = {};
-		shaderDesc.entryName = "vsmain";
-		shaderDesc.pData = shaderSource;
-		shaderDesc.size = shaderSourceLength;
-		shaderDesc.type = KGFX_SHADERTYPE_VERTEX;
-		shaderDesc.medium = KGFX_MEDIUM_HLSL;
-
-		KGFXshader vertexShader = kgfxCreateShader(context, shaderDesc);
-		if (vertexShader == nullptr) {
-			std::cerr << "Failed to create vertex shader" << std::endl;
-			return 1;
-		}
-
-		shaderDesc.entryName = "psmain";
-		shaderDesc.type = KGFX_SHADERTYPE_FRAGMENT;
-		KGFXshader fragmentShader = kgfxCreateShader(context, shaderDesc);
-		if (fragmentShader == nullptr) {
-			std::cerr << "Failed to create fragment shader" << std::endl;
-			return 1;
-		}
-
-		KGFXpipelineattribute attributes[4] = {
-			{ "POSITION", 0, KGFX_DATATYPE_FLOAT3, 0 },
-			{ "NORMAL", 0, KGFX_DATATYPE_FLOAT3, 1 },
-			{ "COLOR", 0, KGFX_DATATYPE_FLOAT3, 2 },
-			{ "TEXCOORD", 0, KGFX_DATATYPE_FLOAT2, 3 },
-		};
-
-		KGFXpipelinebinding binding = {};
-		binding.inputRate = KGFX_VERTEX_INPUT_RATE_VERTEX;
-		binding.pAttributes = attributes;
-		binding.attributeCount = 4;
-		binding.bindpoint = KGFX_BINDPOINT_VERTEX;
-		binding.binding = 0;
-
-		KGFXshader shaders[2] = { vertexShader, fragmentShader };
-
-		KGFXdescriptorsetdesc descSet = {};
-		descSet.bindpoint = KGFX_BINDPOINT_FRAGMENT;
-		descSet.binding = 0;
-		descSet.usage = KGFX_DESCRIPTOR_USAGE_UNIFORM_BUFFER;
-		descSet.size = sizeof(mat4x4) * 3;
-
-		KGFXpipelinedesc pipelineDesc = {};
-		pipelineDesc.pShaders = shaders;
-		pipelineDesc.shaderCount = 2;
-		pipelineDesc.framebuffer = nullptr;
-		pipelineDesc.layout.pBindings = &binding;
-		pipelineDesc.layout.bindingCount = 1;
-		pipelineDesc.layout.pDescriptorSets = &descSet;
-		pipelineDesc.layout.descriptorSetCount = 1;
-		pipelineDesc.cullMode = KGFX_CULLMODE_NONE;
-		pipelineDesc.frontFace = KGFX_FRONTFACE_CCW;
-		pipelineDesc.fillMode = KGFX_FILLMODE_SOLID;
-		pipelineDesc.topology = KGFX_TOPOLOGY_TRIANGLES;
-
-		basicPipeline = kgfxCreatePipeline(context, pipelineDesc);
-		if (basicPipeline == nullptr) {
-			std::cerr << "Failed to create pipeline" << std::endl;
-			return 1;
-		}
-
-		addForDestruction(reinterpret_cast<KGFXdestroyfunc>(kgfxDestroyPipeline), basicPipeline);
-		kgfxDestroyShader(context, vertexShader);
-		kgfxDestroyShader(context, fragmentShader);
 
 		glfwSetKeyCallback(window, keyCallback);
 		glfwSetMouseButtonCallback(window, mouseButtonCallback);
@@ -398,6 +382,14 @@ struct Context {
 		deinited = true;
 		inited = false;
 
+		if (config.koml.symbols != nullptr) {
+			koml_table_destroy(&config.koml);
+		}
+
+		if (config.shaderKOML.symbols != nullptr) {
+			koml_table_destroy(&config.shaderKOML);
+		}
+
 		for (auto& pair : destructionPairs) {
 			pair.func(context, pair.object);
 		}
@@ -408,21 +400,261 @@ struct Context {
 		}
 	}
 
-	bool loadShader(koml_table_t& table, std::string const& label, Shader& shader) {
-		koml_symbol_t* name = koml_table_symbol(&table, label + ":name");
-		if (name == nullptr) {
-			std::cerr << "Failed to find shader at label " << label << " in shaders.koml" << std::endl;
-			return false;
-		}
-
-		if (name->type != KOML_TYPE_STRING) {
-			std::cerr << "Shader in shaders.koml is invalid" << std::endl;
-			return false;
+	std::string komlTypeToString(koml_type_enum type) {
+		switch (type) {
+			case KOML_TYPE_UNKNOWN:
+				return "unknown";
+			case KOML_TYPE_INT:
+				return "int";
+			case KOML_TYPE_FLOAT:
+				return "float";
+			case KOML_TYPE_STRING:
+				return "string";
+			case KOML_TYPE_BOOLEAN:
+				return "boolean";
+			case KOML_TYPE_ARRAY:
+				return "array";
 		}
 	}
 
-	void loadShaders() {
+	bool loadKOMLSymbol(koml_table_t& table, std::string const& label, koml_type_enum expectedType, koml_symbol_t*& symbol) {
+		koml_symbol_t* sym = koml_table_symbol(&table, label.c_str());
+		if (sym == nullptr) {
+			std::cerr << "Failed to find " << label << std::endl;
+			return false;
+		}
+
+		if (sym->type != expectedType) {
+			std::cerr << label << ":inputRate is not a " << komlTypeToString(expectedType) << std::endl;
+			return false;
+		}
+
+		symbol = sym;
+		return true;
+	}
+
+	bool loadShaderAttributeConfig(koml_table_t& table, std::string const& label, ShaderDescriptionAttributeConfig& attr) {
+		koml_symbol_t* semanticName;
+		if (!loadKOMLSymbol(table, label + ":semanticName", KOML_TYPE_STRING, semanticName)) {
+			return false;
+		}
+
+		return true;
+	}
+
+	bool loadShaderBindingConfig(koml_table_t& table, std::string const& label, ShaderDescriptionBindingConfig& cfg) {
+		koml_symbol_t* inputRate;
+		if (!loadKOMLSymbol(table, label + ":inputRate", KOML_TYPE_STRING, inputRate)) {
+			return false;
+		}
+
+		cfg.inputRate = inputRate->data.string;
+
+		koml_symbol_t* attributes;
+		if (!loadKOMLSymbol(table, label + ":attributes", KOML_TYPE_ARRAY, attributes)) {
+			return false;
+		}
+
+		if (attributes->data.array.type != KOML_TYPE_STRING) {
+			std::cerr << label << ":attributes is not an array of strings" << std::endl;
+			return false;
+		}
+
+		cfg.attributes.reserve(attributes->data.array.length);
+		for (u32 i = 0; i < attributes->data.array.length; ++i) {
+			if (!loadShaderAttributeConfig(table, std::string(attributes->data.array.elements.string[i]), cfg.attributes[i])) {
+				return false;
+			}
+		}
+
+		koml_symbol_t* bindpoint;
+		if (!loadKOMLSymbol(table, label + ":bindpoint", KOML_TYPE_STRING, bindpoint)) {
+			return false;
+		}
+
+		cfg.bindpoint = bindpoint->data.string;
+
+		koml_symbol_t* binding;
+		if (!loadKOMLSymbol(table, label + ":binding", KOML_TYPE_INT, binding)) {
+			return false;
+		}
+
+		cfg.binding = binding->data.i32;
+		return true;
+	}
+
+	bool loadShaderDescriptionConfig(koml_table_t& table, std::string const& label, ShaderDescriptionConfig& desc) {
+		koml_symbol_t* cullMode;
+		if (!loadKOMLSymbol(table, label + ":cullMode", KOML_TYPE_STRING, cullMode)) {
+			return false;
+		}
+
+		desc.cullMode = cullMode->data.string;
+
+		koml_symbol_t* frontFace;
+		if (!loadKOMLSymbol(table, label + ":frontFace", KOML_TYPE_STRING, frontFace)) {
+			return false;
+		}
+
+		desc.frontFace = frontFace->data.string;
+
+		koml_symbol_t* fillMode;
+		if (!loadKOMLSymbol(table, label + ":fillMode", KOML_TYPE_STRING, fillMode)) {
+			return false;
+		}
+
+		desc.fillMode = fillMode->data.string;
+
+		koml_symbol_t* topology;
+		if (!loadKOMLSymbol(table, label + ":topology", KOML_TYPE_STRING, topology)) {
+			return false;
+		}
+
+		desc.topology = topology->data.string;
+
+		koml_symbol_t* bindings;
+		if (!loadKOMLSymbol(table, label + ":bindings", KOML_TYPE_ARRAY, bindings)) {
+			return false;
+		}
+		
+		if (bindings->data.array.type != KOML_TYPE_STRING) {
+			std::cerr << label << ":bindings is not an array of strings" << std::endl;
+			return false;
+		}
+
+		desc.bindings.reserve(bindings->data.array.length);
+		for (u32 i = 0; i < bindings->data.array.length; ++i) {
+			if (!loadShaderBindingConfig(table, std::string(bindings->data.array.elements.string[i]), desc.bindings[i])) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	bool loadShaderConfig(koml_table_t& table, std::string const& label, ShaderConfig& cfg) {
+		koml_symbol_t* name;
+		if (!loadKOMLSymbol(table, label + ":name", KOML_TYPE_STRING, name)) {
+			return false;
+		}
+
+		cfg.name = name->data.string;
+
+		koml_symbol_t* vertexPath;
+		if (!loadKOMLSymbol(table, label + ":vertexPath", KOML_TYPE_STRING, vertexPath)) {
+			return false;
+		}
+
+		cfg.vertexPath = vertexPath->data.string;
+
+		koml_symbol_t* vertexEntry = koml_table_symbol(&table, (label + ":vertexEntry").c_str());
+		if (vertexEntry == nullptr) {
+			cfg.vertexEntry = const_cast<char*>("main");
+		} else {
+			if (vertexEntry->type != KOML_TYPE_STRING) {
+				std::cerr << label << ":vertexEntry is not a string" << std::endl;
+				return false;
+			}
+
+			cfg.vertexEntry = vertexEntry->data.string;
+		}
+
+		koml_symbol_t* vertexMedium;
+		if (!loadKOMLSymbol(table, label + ":vertexMedium", KOML_TYPE_STRING, vertexMedium)) {
+			return false;
+		}
+
+		cfg.vertexMedium = vertexMedium->data.string;
+
+		koml_symbol_t* fragmentPath;
+		if (!loadKOMLSymbol(table, label + ":fragmentPath", KOML_TYPE_STRING, fragmentPath)) {
+			return false;
+		}
+
+		cfg.fragmentPath = fragmentPath->data.string;
+
+		koml_symbol_t* fragmentEntry = koml_table_symbol(&table, (label + ":fragmentEntry").c_str());
+		if (fragmentEntry == nullptr) {
+			cfg.fragmentEntry = const_cast<char*>("main");
+		} else {
+			if (fragmentEntry->type != KOML_TYPE_STRING) {
+				std::cerr << label << ":fragmentEntry is not a string" << std::endl;
+				return false;
+			}
+
+			cfg.fragmentEntry = fragmentEntry->data.string;
+		}
+
+		koml_symbol_t* fragmentMedium;
+		if (!loadKOMLSymbol(table, label + ":fragmentMedium", KOML_TYPE_STRING, fragmentMedium)) {
+			return false;
+		}
+
+		cfg.fragmentMedium = fragmentMedium->data.string;
+
+		koml_symbol_t* description;
+		if (!loadKOMLSymbol(table, label + ":description", KOML_TYPE_STRING, description)) {
+			return false;
+		}
+
+		if (!loadShaderDescriptionConfig(table, std::string(description->data.string), cfg.description)) {
+			return false;
+		}
+
+		return true;
+	}
+
+	bool stringToShaderMedium(std::string& string, KGFXshadermedium& medium) {
+		if (string == "spirv") {
+			medium = KGFX_MEDIUM_SPIRV;
+		} else if (string == "glsl") {
+			medium = KGFX_MEDIUM_GLSL;
+		} else if (string == "hlsl") {
+			medium = KGFX_MEDIUM_HLSL;
+		} else if (string == "msl") {
+			medium = KGFX_MEDIUM_MSL;
+		} else {
+			return false;
+		}
+
+		return true;
+	}
+
+	bool parseShaderConfig(ShaderConfig& cfg, ShaderConfigParsed& parsed) {
+		ShaderConfigParsed p = {};
+
+		return true;
+	}
+
+	bool loadShader(koml_table_t& table, std::string const& label, Shader& shader) {
+		ShaderConfig cfg;
+		if (!loadShaderConfig(table, label, cfg)) {
+			return false;
+		}
+
+		ShaderConfigParsed parsed;
+		if (!parseShaderConfig(cfg, parsed)) {
+			return false;
+		}
+
+		KGFXshaderdesc shaderDesc = {};
+		shaderDesc.entryName = cfg.vertexEntry;
+		shaderDesc.type = KGFX_SHADERTYPE_VERTEX;
+		
+		KGFXpipelinedesc pipelineDesc = {};
+
+		return true;
+	}
+
+	bool loadShaders() {
 		koml_table_t& table = config.shaderKOML;
+		Shader shader;
+		if (!loadShader(table, "shaders.default", shader)) {
+			std::cerr << "Failed to load default shader" << std::endl;
+			return false;
+		}
+
+		return true;
 	}
 
 	Context() = default;

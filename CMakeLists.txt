@@ -29,7 +29,7 @@ if (WIN32)
 elseif (MACOSX)
   link_directories(vendor/macos)
   file(GLOB LIBRARIES "vendor/macos/*.dylib")
-  link_libraries(kgfx kgfx_gh glfw3)
+  link_libraries(kgfx kgfx_gh glfw)
 endif()
 
 # Create the executable

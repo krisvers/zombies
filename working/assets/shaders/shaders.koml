@@ -6,17 +6,18 @@ s vertexMedium = "hlsl";
 s fragmentPath = "default.hlsl";
 s fragmentEntry = "fsmain";
 s fragmentMedium = "hlsl";
+s description = "shaders.default.description";
 
 [shaders.default.description]
 s cullMode = "none";
 s frontFace = "ccw";
 s fillMode = "solid";
 s topology = "triangles";
-as bindingLabels = "shaders.default.description.binding";
+as bindings = "shaders.default.description.binding";
 
 [shaders.default.description.binding]
 s inputRate = "vertex";
-as attributeLabels = "shaders.default.description.attributes.position", "shaders.default.description.attributes.normal", "shaders.default.description.attributes.color", "shaders.default.description.attributes.texcoord";
+as attributes = "shaders.default.description.attributes.position", "shaders.default.description.attributes.normal", "shaders.default.description.attributes.color", "shaders.default.description.attributes.texcoord";
 s bindpoint = "vertex";
 i binding = 0;
 
