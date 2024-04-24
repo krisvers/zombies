@@ -4,7 +4,7 @@ s vertexPath = "default.hlsl";
 s vertexEntry = "vsmain";
 s vertexMedium = "hlsl";
 s fragmentPath = "default.hlsl";
-s fragmentEntry = "fsmain";
+s fragmentEntry = "psmain";
 s fragmentMedium = "hlsl";
 s description = "shaders.default.description";
 

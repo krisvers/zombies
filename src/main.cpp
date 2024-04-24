@@ -134,10 +134,6 @@ struct ContextConfig {
 	std::string shaderDirectory = ".";
 };
 
-struct Shader {
-	KGFXpipeline pipeline = nullptr;
-};
-
 struct ShaderDescriptionAttributeConfig {
 	char* semanticName;
 	int semanticIndex;
@@ -190,15 +186,19 @@ struct ShaderDescriptionConfigParsed {
 };
 
 struct ShaderConfigParsed {
-	char* name;
-	char* vertexPath;
-	char* vertexEntry;
+	std::string name;
+	std::string vertexPath;
+	std::string vertexEntry;
 	KGFXshadermedium vertexMedium;
-	char* fragmentPath;
-	char* fragmentEntry;
+	std::string fragmentPath;
+	std::string fragmentEntry;
 	KGFXshadermedium fragmentMedium;
 
 	ShaderDescriptionConfigParsed description;
+};
+
+struct Shader {
+	KGFXpipeline pipeline = nullptr;
 };
 
 struct ShaderStorage {
@@ -208,7 +208,7 @@ struct ShaderStorage {
 struct Context {
 	KGFXcontext context = nullptr;
 	KGFXcommandlist commandList = nullptr;
-	KGFXpipeline basicPipeline = nullptr;
+	KGFXpipeline defaultPipeline = nullptr;
 	ContextConfig config;
 	ShaderStorage shaderStorage;
 
@@ -290,14 +290,6 @@ struct Context {
 
 		koml_table_print(&config.shaderKOML);
 
-		if (!loadShaders()) {
-			std::cerr << "Failed to load shaders" << std::endl;
-			return 1;
-		}
-
-		std::cerr << "Not finished" << std::endl;
-		return 1;
-
 		if (kgfxCreateContext(KGFX_ANY_VERSION, kgfxWindowFromGLFW(window), &context) != KGFX_SUCCESS) {
 			std::cerr << "Failed to create KGFX context" << std::endl;
 			return 1;
@@ -310,6 +302,11 @@ struct Context {
 		}
 
 		addForDestruction(reinterpret_cast<KGFXdestroyfunc>(kgfxDestroyCommandList), commandList);
+
+		if (!loadShaders()) {
+			std::cerr << "Failed to load shaders" << std::endl;
+			return 1;
+		}
 
 		glfwSetKeyCallback(window, keyCallback);
 		glfwSetMouseButtonCallback(window, mouseButtonCallback);
@@ -439,6 +436,28 @@ struct Context {
 			return false;
 		}
 
+		attr.semanticName = semanticName->data.string;
+
+		koml_symbol_t* semanticIndex;
+		if (!loadKOMLSymbol(table, label + ":semanticIndex", KOML_TYPE_INT, semanticIndex)) {
+			return false;
+		}
+
+		attr.semanticIndex = semanticIndex->data.i32;
+
+		koml_symbol_t* type;
+		if (!loadKOMLSymbol(table, label + ":type", KOML_TYPE_STRING, type)) {
+			return false;
+		}
+
+		attr.type = type->data.string;
+
+		koml_symbol_t* location;
+		if (!loadKOMLSymbol(table, label + ":location", KOML_TYPE_INT, location)) {
+			return false;
+		}
+
+		attr.location = location->data.i32;
 		return true;
 	}
 
@@ -460,7 +479,7 @@ struct Context {
 			return false;
 		}
 
-		cfg.attributes.reserve(attributes->data.array.length);
+		cfg.attributes.resize(attributes->data.array.length);
 		for (u32 i = 0; i < attributes->data.array.length; ++i) {
 			if (!loadShaderAttributeConfig(table, std::string(attributes->data.array.elements.string[i]), cfg.attributes[i])) {
 				return false;
@@ -522,7 +541,7 @@ struct Context {
 			return false;
 		}
 
-		desc.bindings.reserve(bindings->data.array.length);
+		desc.bindings.resize(bindings->data.array.length);
 		for (u32 i = 0; i < bindings->data.array.length; ++i) {
 			if (!loadShaderBindingConfig(table, std::string(bindings->data.array.elements.string[i]), desc.bindings[i])) {
 				return false;
@@ -604,25 +623,160 @@ struct Context {
 		return true;
 	}
 
-	bool stringToShaderMedium(std::string& string, KGFXshadermedium& medium) {
-		if (string == "spirv") {
-			medium = KGFX_MEDIUM_SPIRV;
-		} else if (string == "glsl") {
-			medium = KGFX_MEDIUM_GLSL;
-		} else if (string == "hlsl") {
-			medium = KGFX_MEDIUM_HLSL;
-		} else if (string == "msl") {
-			medium = KGFX_MEDIUM_MSL;
+	bool parseShaderConfig(ShaderConfig& cfg, ShaderConfigParsed& parsed) {
+		ShaderConfigParsed p = {};
+		p.name = cfg.name;
+		p.vertexPath = cfg.vertexPath;
+		p.vertexEntry = cfg.vertexEntry;
+		if (strcmp(cfg.vertexMedium, "glsl") == 0) {
+			p.vertexMedium = KGFX_MEDIUM_GLSL;
+		} else if (strcmp(cfg.vertexMedium, "hlsl") == 0) {
+			p.vertexMedium = KGFX_MEDIUM_HLSL;
+		} else if (strcmp(cfg.vertexMedium, "spirv") == 0) {
+			p.vertexMedium = KGFX_MEDIUM_SPIRV;
+		} else if (strcmp(cfg.vertexMedium, "msl") == 0) {
+			p.vertexMedium = KGFX_MEDIUM_MSL;
 		} else {
+			std::cerr << "Failed to parse " << cfg.vertexMedium << " as a shader medium" << std::endl;
 			return false;
 		}
 
-		return true;
-	}
+		p.fragmentPath = cfg.fragmentPath;
+		p.fragmentEntry = cfg.fragmentEntry;
+		if (strcmp(cfg.fragmentMedium, "glsl") == 0) {
+			p.fragmentMedium = KGFX_MEDIUM_GLSL;
+		} else if (strcmp(cfg.fragmentMedium, "hlsl") == 0) {
+			p.fragmentMedium = KGFX_MEDIUM_HLSL;
+		} else if (strcmp(cfg.fragmentMedium, "spirv") == 0) {
+			p.fragmentMedium = KGFX_MEDIUM_SPIRV;
+		} else if (strcmp(cfg.fragmentMedium, "msl") == 0) {
+			p.fragmentMedium = KGFX_MEDIUM_MSL;
+		} else {
+			std::cerr << "Failed to parse " << cfg.fragmentMedium << " as a shader medium" << std::endl;
+			return false;
+		}
 
-	bool parseShaderConfig(ShaderConfig& cfg, ShaderConfigParsed& parsed) {
-		ShaderConfigParsed p = {};
+		ShaderDescriptionConfigParsed desc = {};
+		if (strcmp(cfg.description.cullMode, "none") == 0) {
+			desc.cullMode = KGFX_CULLMODE_NONE;
+		} else if (strcmp(cfg.description.cullMode, "front") == 0) {
+			desc.cullMode = KGFX_CULLMODE_FRONT;
+		} else if (strcmp(cfg.description.cullMode, "back") == 0) {
+			desc.cullMode = KGFX_CULLMODE_BACK;
+		} else {
+			std::cerr << "Failed to parse " << cfg.description.cullMode << " as a cull mode" << std::endl;
+			return false;
+		}
 
+		if (strcmp(cfg.description.frontFace, "ccw") == 0) {
+			desc.frontFace = KGFX_FRONTFACE_CCW;
+		} else if (strcmp(cfg.description.frontFace, "cw") == 0) {
+			desc.frontFace = KGFX_FRONTFACE_CW;
+		} else {
+			std::cerr << "Failed to parse " << cfg.description.frontFace << " as a front face" << std::endl;
+			return false;
+		}
+
+		if (strcmp(cfg.description.fillMode, "solid") == 0) {
+			desc.fillMode = KGFX_FILLMODE_SOLID;
+		} else if (strcmp(cfg.description.fillMode, "lines") == 0) {
+			desc.fillMode = KGFX_FILLMODE_LINES;
+		} else {
+			std::cerr << "Failed to parse " << cfg.description.fillMode << " as a fill mode" << std::endl;
+			return false;
+		}
+
+		if (strcmp(cfg.description.topology, "points") == 0) {
+			desc.topology = KGFX_TOPOLOGY_POINTS;
+		} else if (strcmp(cfg.description.topology, "lines") == 0) {
+			desc.topology = KGFX_TOPOLOGY_LINES;
+		} else if (strcmp(cfg.description.topology, "triangles") == 0) {
+			desc.topology = KGFX_TOPOLOGY_TRIANGLES;
+		} else {
+			std::cerr << "Failed to parse " << cfg.description.topology << " as a topology" << std::endl;
+			return false;
+		}
+
+		desc.bindings.resize(cfg.description.bindings.size());
+		for (u32 i = 0; i < desc.bindings.size(); ++i) {
+			ShaderDescriptionBindingConfigParsed& binding = desc.bindings[i];
+			ShaderDescriptionBindingConfig& bindingCfg = cfg.description.bindings[i];
+
+			if (strcmp(bindingCfg.inputRate, "vertex") == 0) {
+				binding.inputRate = KGFX_VERTEX_INPUT_RATE_VERTEX;
+			} else if (strcmp(bindingCfg.inputRate, "instance") == 0) {
+				binding.inputRate = KGFX_VERTEX_INPUT_RATE_INSTANCE;
+			} else {
+				std::cerr << "Failed to parse " << bindingCfg.inputRate << " as an input rate" << std::endl;
+				return false;
+			}
+
+			binding.attributes.resize(bindingCfg.attributes.size());
+			for (u32 j = 0; j < binding.attributes.size(); ++j) {
+				ShaderDescriptionAttributeConfigParsed& attr = binding.attributes[j];
+				ShaderDescriptionAttributeConfig& attrCfg = bindingCfg.attributes[j];
+
+				attr.semanticName = attrCfg.semanticName;
+				attr.semanticIndex = attrCfg.semanticIndex;
+
+				if (strcmp(attrCfg.type, "float") == 0) {
+					attr.type = KGFX_DATATYPE_FLOAT;
+				} else if (strcmp(attrCfg.type, "float2") == 0) {
+					attr.type = KGFX_DATATYPE_FLOAT2;
+				} else if (strcmp(attrCfg.type, "float3") == 0) {
+					attr.type = KGFX_DATATYPE_FLOAT3;
+				} else if (strcmp(attrCfg.type, "float4") == 0) {
+					attr.type = KGFX_DATATYPE_FLOAT4;
+				} else if (strcmp(attrCfg.type, "int") == 0) {
+					attr.type = KGFX_DATATYPE_INT;
+				} else if (strcmp(attrCfg.type, "int2") == 0) {
+					attr.type = KGFX_DATATYPE_INT2;
+				} else if (strcmp(attrCfg.type, "int3") == 0) {
+					attr.type = KGFX_DATATYPE_INT3;
+				} else if (strcmp(attrCfg.type, "int4") == 0) {
+					attr.type = KGFX_DATATYPE_INT4;
+				} else if (strcmp(attrCfg.type, "uint") == 0) {
+					attr.type = KGFX_DATATYPE_UINT;
+				} else if (strcmp(attrCfg.type, "uint2") == 0) {
+					attr.type = KGFX_DATATYPE_UINT2;
+				} else if (strcmp(attrCfg.type, "uint3") == 0) {
+					attr.type = KGFX_DATATYPE_UINT3;
+				} else if (strcmp(attrCfg.type, "uint4") == 0) {
+					attr.type = KGFX_DATATYPE_UINT4;
+				} else if (strcmp(attrCfg.type, "mat2") == 0) {
+					attr.type = KGFX_DATATYPE_MAT2;
+				} else if (strcmp(attrCfg.type, "mat3") == 0) {
+					attr.type = KGFX_DATATYPE_MAT3;
+				} else if (strcmp(attrCfg.type, "mat4") == 0) {
+					attr.type = KGFX_DATATYPE_MAT4;
+				} else if (strcmp(attrCfg.type, "texture") == 0) {
+					attr.type = KGFX_DATATYPE_TEXTURE_SAMPLER;
+				} else {
+					std::cerr << "Failed to parse " << attrCfg.type << " as a type" << std::endl;
+					return false;
+				}
+
+				attr.location = attrCfg.location;
+			}
+
+			if (strcmp(bindingCfg.bindpoint, "vertex") == 0) {
+				binding.bindpoint = KGFX_BINDPOINT_VERTEX;
+			} else if (strcmp(bindingCfg.bindpoint, "fragment") == 0) {
+				binding.bindpoint = KGFX_BINDPOINT_FRAGMENT;
+			} else if (strcmp(bindingCfg.bindpoint, "geometry") == 0) {
+				binding.bindpoint = KGFX_BINDPOINT_GEOMETRY;
+			} else if (strcmp(bindingCfg.bindpoint, "compute") == 0) {
+				binding.bindpoint = KGFX_BINDPOINT_COMPUTE;
+			} else {
+				std::cerr << "Failed to parse " << bindingCfg.bindpoint << " as a bindpoint" << std::endl;
+				return false;
+			}
+
+			binding.binding = bindingCfg.binding;
+		}
+
+		p.description = desc;
+		parsed = p;
 		return true;
 	}
 
@@ -638,11 +792,107 @@ struct Context {
 		}
 
 		KGFXshaderdesc shaderDesc = {};
-		shaderDesc.entryName = cfg.vertexEntry;
+		shaderDesc.entryName = parsed.vertexEntry.c_str();
+		{
+			FILE* fp = fopen((config.shaderDirectory + "/" + parsed.vertexPath).c_str(), "rb");
+			if (fp == nullptr) {
+				std::cerr << "Failed to open " << config.shaderDirectory + "/" + parsed.vertexPath << std::endl;
+				return false;
+			}
+
+			fseek(fp, 0, SEEK_END);
+			shaderDesc.size = ftell(fp);
+			fseek(fp, 0, SEEK_SET);
+
+			shaderDesc.pData = new u8[shaderDesc.size];
+			if (fread(const_cast<void*>(shaderDesc.pData), 1, shaderDesc.size, fp) != shaderDesc.size) {
+				std::cerr << "Failed to read " << config.shaderDirectory + "/" + parsed.vertexPath << std::endl;
+				delete[] shaderDesc.pData;
+				return false;
+			}
+
+			fclose(fp);
+		}
 		shaderDesc.type = KGFX_SHADERTYPE_VERTEX;
+		shaderDesc.medium = parsed.vertexMedium;
+
+		KGFXshader vertexShader = kgfxCreateShader(context, shaderDesc);
+		if (vertexShader == nullptr) {
+			std::cerr << "Failed to create vertex shader" << std::endl;
+			delete[] shaderDesc.pData;
+			return false;
+		}
+
+		shaderDesc.entryName = parsed.fragmentEntry.c_str();
+		if (parsed.fragmentPath != parsed.vertexPath) {
+			delete[] shaderDesc.pData;
+
+			FILE* fp = fopen((config.shaderDirectory + "/" + parsed.fragmentPath).c_str(), "rb");
+			if (fp == nullptr) {
+				std::cerr << "Failed to open " << config.shaderDirectory + "/" + parsed.fragmentPath << std::endl;
+				return false;
+			}
+
+			fseek(fp, 0, SEEK_END);
+			shaderDesc.size = ftell(fp);
+			fseek(fp, 0, SEEK_SET);
+
+			shaderDesc.pData = new u8[shaderDesc.size];
+			if (fread(const_cast<void*>(shaderDesc.pData), 1, shaderDesc.size, fp) != shaderDesc.size) {
+				std::cerr << "Failed to read " << config.shaderDirectory + "/" + parsed.fragmentPath << std::endl;
+				return false;
+			}
+
+			fclose(fp);
+		}
+		shaderDesc.type = KGFX_SHADERTYPE_FRAGMENT;
+		shaderDesc.medium = parsed.fragmentMedium;
+
+		KGFXshader fragmentShader = kgfxCreateShader(context, shaderDesc);
+		delete[] shaderDesc.pData;
+		if (fragmentShader == nullptr) {
+			std::cerr << "Failed to create fragment shader" << std::endl;
+			return false;
+		}
+
+		KGFXshader shaders[2] = { vertexShader, fragmentShader };
 		
 		KGFXpipelinedesc pipelineDesc = {};
+		pipelineDesc.cullMode = parsed.description.cullMode;
+		pipelineDesc.frontFace = parsed.description.frontFace;
+		pipelineDesc.fillMode = parsed.description.fillMode;
+		pipelineDesc.topology = parsed.description.topology;
+		pipelineDesc.shaderCount = 2;
+		pipelineDesc.pShaders = shaders;
+		pipelineDesc.framebuffer = nullptr;
 
+		std::vector<KGFXpipelinebinding> bindings(parsed.description.bindings.size());
+		for (u32 i = 0; i < bindings.size(); ++i) {
+			ShaderDescriptionBindingConfigParsed& binding = parsed.description.bindings[i];
+			KGFXpipelinebinding& b = bindings[i];
+			b.inputRate = binding.inputRate;
+			b.attributeCount = binding.attributes.size();
+			b.pAttributes = binding.attributes.data();
+			b.bindpoint = binding.bindpoint;
+			b.binding = binding.binding;
+		}
+
+		pipelineDesc.layout.pDescriptorSets = nullptr;
+		pipelineDesc.layout.descriptorSetCount = 0;
+		pipelineDesc.layout.pBindings = bindings.data();
+		pipelineDesc.layout.bindingCount = bindings.size();
+
+		KGFXpipeline pipeline = kgfxCreatePipeline(context, pipelineDesc);
+		if (pipeline == nullptr) {
+			std::cerr << "Failed to create pipeline" << std::endl;
+			return false;
+		}
+
+		addForDestruction(reinterpret_cast<KGFXdestroyfunc>(kgfxDestroyPipeline), pipeline);
+		kgfxDestroyShader(context, vertexShader);
+		kgfxDestroyShader(context, fragmentShader);
+
+		shader.pipeline = pipeline;
 		return true;
 	}
 
@@ -654,6 +904,8 @@ struct Context {
 			return false;
 		}
 
+		shaderStorage.shaders["default"] = shader;
+		defaultPipeline = shader.pipeline;
 		return true;
 	}
 
@@ -892,7 +1144,7 @@ struct Player : public GameObject {
 };
 
 int main() {
-	std::string originalPath = std::filesystem::current_path();
+	std::filesystem::path originalPath = std::filesystem::current_path();
 
 	glfwSetErrorCallback([](int error, const char* description) {
 		std::cerr << "GLFW Error: " << description << std::endl;
@@ -988,7 +1240,7 @@ int main() {
 	renderable.vertexCount = 3;
 	renderable.indexBuffer = nullptr;
 	renderable.indexCount = 0;
-	renderable.pipeline = context.basicPipeline;
+	renderable.pipeline = context.defaultPipeline;
 
 	GameObjectRenderable triangle = GameObjectRenderable(renderable);
 	triangle.position[0] = 0;
@@ -1036,7 +1288,7 @@ int main() {
 		for (Renderable* r : context.renderables) {
 			r->calculateMVP(matrixMapped->model);
 			r->addSetupCommandsToList(context.context, context.commandList);
-			kgfxCommandBindDescriptorSetBuffer(context.context, context.commandList, uniformBuffer, 0);
+			//kgfxCommandBindDescriptorSetBuffer(context.context, context.commandList, uniformBuffer, 0);
 			r->addDrawCommandsToList(context.context, context.commandList);
 		}
 

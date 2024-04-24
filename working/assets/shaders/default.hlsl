@@ -14,19 +14,10 @@ struct vertex_output
 	float2 texcoord : TEXCOORD0;
 };
 
-cbuffer uniform_buffer : register(b0)
-{
-	float4x4 model;
-	float4x4 view;
-	float4x4 projection;
-};
-
 vertex_output vsmain(vertex_input input)
 {
-	float4x4 mvp = mul(projection, mul(view, model));
-	
 	vertex_output output;
-	output.position = mul(mvp, float4(input.position, 1.0f));
+	output.position = float4(input.position, 1.0f);
 	output.normal = input.normal;
 	output.color = input.color;
 	output.texcoord = input.texcoord;
