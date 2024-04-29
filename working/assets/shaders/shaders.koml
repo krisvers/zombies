@@ -14,6 +14,7 @@ s frontFace = "ccw";
 s fillMode = "solid";
 s topology = "triangles";
 as bindings = "shaders.default.description.binding";
+as descriptorSets = "shaders.default.description.descriptorSet";
 
 [shaders.default.description.binding]
 s inputRate = "vertex";
@@ -44,3 +45,9 @@ s semanticName = "TEXCOORD";
 i semanticIndex = 0;
 s type = "float2";
 i location = 3;
+
+[shaders.default.description.descriptorSet]
+s bindpoint = "vertex";
+i binding = 0;
+s usage = "uniform";
+i size = 192;

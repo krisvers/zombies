@@ -14,12 +14,21 @@ struct vertex_output
 	float2 texcoord : TEXCOORD0;
 };
 
+cbuffer ubo : register(b0)
+{
+	float4x4 model;
+	float4x4 view;
+	float4x4 projection;
+};
+
 vertex_output vsmain(vertex_input input)
 {
+	float4x4 mvp = view;
+	
 	vertex_output output;
 	output.position = float4(input.position, 1.0f);
 	output.normal = input.normal;
-	output.color = input.color;
+	output.color = (mul(float4(input.position, 1.0f), mvp).xyz + 1) / 2 + 1;
 	output.texcoord = input.texcoord;
 	return output;
 }

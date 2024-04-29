@@ -1,6 +1,9 @@
 #include <kgfx/kgfx.h>
-#include <kgfx_gh/kgfx_gh.h>
-#include <GLFW/glfw3.h>
+
+extern "C" {
+#include <kwnd/kwnd.h>
+}
+
 #include <linmath.h>
 #define KOML_IMPLEMENTATION
 #include <koml.h>
@@ -148,12 +151,20 @@ struct ShaderDescriptionBindingConfig {
 	int binding;
 };
 
+struct ShaderDescriptionDescriptorSetConfig {
+	char* bindpoint;
+	int binding;
+	char* usage;
+	int size;
+};
+
 struct ShaderDescriptionConfig {
 	char* cullMode;
 	char* frontFace;
 	char* fillMode;
 	char* topology;
 	std::vector<ShaderDescriptionBindingConfig> bindings;
+	std::vector<ShaderDescriptionDescriptorSetConfig> descriptorSets;
 };
 
 struct ShaderConfig {
@@ -183,6 +194,7 @@ struct ShaderDescriptionConfigParsed {
 	KGFXfillmode fillMode;
 	KGFXtopology topology;
 	std::vector<ShaderDescriptionBindingConfigParsed> bindings;
+	std::vector<KGFXdescriptorsetdesc> descriptorSets;
 };
 
 struct ShaderConfigParsed {
@@ -225,20 +237,20 @@ struct Context {
 	std::vector<GameObject*> gameObjects;
 	std::vector<Renderable*> renderables;
 
-	static inline std::array<bool, GLFW_KEY_LAST - 1> keys;
-	static inline std::array<bool, GLFW_KEY_LAST - 1> prevKeys;
-	static inline std::array<bool, GLFW_MOUSE_BUTTON_LAST - 1> mouseButtons;
-	static inline std::array<bool, GLFW_MOUSE_BUTTON_LAST - 1> prevMouseButtons;
+	static inline std::array<bool, 256> keys;
+	static inline std::array<bool, 256> prevKeys;
+	static inline std::array<bool, 5> mouseButtons;
+	static inline std::array<bool, 5> prevMouseButtons;
 
-	static inline double mouseX = 0;
-	static inline double mouseY = 0;
-	static inline double mouseZ = 0;
-	static inline double prevMouseX = 0;
-	static inline double prevMouseY = 0;
-	static inline double prevMouseZ = 0;
-	static inline double deltaMouseX = 0;
-	static inline double deltaMouseY = 0;
-	static inline double deltaMouseZ = 0;
+	static inline float mouseX = 0;
+	static inline float mouseY = 0;
+	static inline float mouseZ = 0;
+	static inline float prevMouseX = 0;
+	static inline float prevMouseY = 0;
+	static inline float prevMouseZ = 0;
+	static inline float deltaMouseX = 0;
+	static inline float deltaMouseY = 0;
+	static inline float deltaMouseZ = 0;
 
 	static inline float deltaTime = 0;
 	static inline float lastTime;
@@ -249,8 +261,9 @@ struct Context {
 	bool isWindowed = false;
 	u32 windowWidth = 0;
 	u32 windowHeight = 0;
+	kwnd_window_t* window = nullptr;
 
-	int init(GLFWwindow* window) {
+	int init(kwnd_window_t* w) {
 		if (inited) {
 			return 0;
 		}
@@ -290,7 +303,7 @@ struct Context {
 
 		koml_table_print(&config.shaderKOML);
 
-		if (kgfxCreateContext(KGFX_ANY_VERSION, kgfxWindowFromGLFW(window), &context) != KGFX_SUCCESS) {
+		if (kgfxCreateContext(KGFX_ANY_VERSION, { w->platform.hwnd }, &context) != KGFX_SUCCESS) {
 			std::cerr << "Failed to create KGFX context" << std::endl;
 			return 1;
 		}
@@ -308,10 +321,7 @@ struct Context {
 			return 1;
 		}
 
-		glfwSetKeyCallback(window, keyCallback);
-		glfwSetMouseButtonCallback(window, mouseButtonCallback);
-		glfwSetCursorPosCallback(window, cursorPosCallback);
-		glfwSetScrollCallback(window, scrollCallback);
+		window = w;
 		return 0;
 	}
 
@@ -363,12 +373,37 @@ struct Context {
 		prevMouseY = mouseY;
 		prevMouseZ = mouseZ;
 
-		deltaTime = static_cast<float>(glfwGetTime() - lastTime);
-		lastTime = static_cast<float>(glfwGetTime());
+		deltaTime = static_cast<float>(0.016f);
+		lastTime = static_cast<float>(1);
 
 		for (auto& object : gameObjects) {
 			object->update();
 		}
+	}
+
+	bool reloadShaders() {
+		std::vector<std::vector<DestructionPair>::iterator> iteratorsToErase;
+		for (auto& pair : shaderStorage.shaders) {
+			for (u32 i = 0; i < destructionPairs.size(); ++i) {
+				if (destructionPairs[i].object == pair.second.pipeline) {
+					destructionPairs[i].func(context, destructionPairs[i].object);
+					iteratorsToErase.push_back(destructionPairs.begin() + i);
+				}
+			}
+		}
+
+		for (auto& iter : iteratorsToErase) {
+			destructionPairs.erase(iter);
+		}
+
+		shaderStorage.shaders.clear();
+
+		if (!loadShaders()) {
+			std::cerr << "Failed to reload shaders" << std::endl;
+			return false;
+		}
+
+		return true;
 	}
 
 	void deinit() {
@@ -502,6 +537,37 @@ struct Context {
 		return true;
 	}
 
+	bool loadShaderDescriptionDescriptorSetConfig(koml_table_t& table, std::string const& label, ShaderDescriptionDescriptorSetConfig& desc) {
+		koml_symbol_t* bindpoint;
+		if (!loadKOMLSymbol(table, label + ":bindpoint", KOML_TYPE_STRING, bindpoint)) {
+			return false;
+		}
+
+		desc.bindpoint = bindpoint->data.string;
+
+		koml_symbol_t* binding;
+		if (!loadKOMLSymbol(table, label + ":binding", KOML_TYPE_INT, binding)) {
+			return false;
+		}
+
+		desc.binding = binding->data.i32;
+
+		koml_symbol_t* usage;
+		if (!loadKOMLSymbol(table, label + ":usage", KOML_TYPE_STRING, usage)) {
+			return false;
+		}
+
+		desc.usage = usage->data.string;
+
+		koml_symbol_t* size;
+		if (!loadKOMLSymbol(table, label + ":size", KOML_TYPE_INT, size)) {
+			return false;
+		}
+
+		desc.size = size->data.i32;
+		return true;
+	}
+
 	bool loadShaderDescriptionConfig(koml_table_t& table, std::string const& label, ShaderDescriptionConfig& desc) {
 		koml_symbol_t* cullMode;
 		if (!loadKOMLSymbol(table, label + ":cullMode", KOML_TYPE_STRING, cullMode)) {
@@ -544,6 +610,23 @@ struct Context {
 		desc.bindings.resize(bindings->data.array.length);
 		for (u32 i = 0; i < bindings->data.array.length; ++i) {
 			if (!loadShaderBindingConfig(table, std::string(bindings->data.array.elements.string[i]), desc.bindings[i])) {
+				return false;
+			}
+		}
+
+		koml_symbol_t* descriptorSets;
+		if (!loadKOMLSymbol(table, label + ":descriptorSets", KOML_TYPE_ARRAY, descriptorSets)) {
+			return false;
+		}
+
+		if (descriptorSets->data.array.type != KOML_TYPE_STRING) {
+			std::cerr << label << ":descriptorSets is not an array of strings" << std::endl;
+			return false;
+		}
+
+		desc.descriptorSets.resize(descriptorSets->data.array.length);
+		for (u32 i = 0; i < descriptorSets->data.array.length; ++i) {
+			if (!loadShaderDescriptionDescriptorSetConfig(table, std::string(descriptorSets->data.array.elements.string[i]), desc.descriptorSets[i])) {
 				return false;
 			}
 		}
@@ -775,6 +858,38 @@ struct Context {
 			binding.binding = bindingCfg.binding;
 		}
 
+		desc.descriptorSets.resize(cfg.description.descriptorSets.size());
+		for (u32 i = 0; i < desc.descriptorSets.size(); ++i) {
+			KGFXdescriptorsetdesc& descSet = desc.descriptorSets[i];
+			ShaderDescriptionDescriptorSetConfig& descCfg = cfg.description.descriptorSets[i];
+
+			if (strcmp(descCfg.bindpoint, "vertex") == 0) {
+				descSet.bindpoint = KGFX_BINDPOINT_VERTEX;
+			} else if (strcmp(descCfg.bindpoint, "fragment") == 0) {
+				descSet.bindpoint = KGFX_BINDPOINT_FRAGMENT;
+			} else if (strcmp(descCfg.bindpoint, "geometry") == 0) {
+				descSet.bindpoint = KGFX_BINDPOINT_GEOMETRY;
+			} else if (strcmp(descCfg.bindpoint, "compute") == 0) {
+				descSet.bindpoint = KGFX_BINDPOINT_COMPUTE;
+			} else {
+				std::cerr << "Failed to parse " << descCfg.bindpoint << " as a bindpoint" << std::endl;
+				return false;
+			}
+
+			descSet.binding = descCfg.binding;
+
+			if (strcmp(descCfg.usage, "uniform") == 0) {
+				descSet.usage = KGFX_DESCRIPTOR_USAGE_UNIFORM_BUFFER;
+			} else if (strcmp(descCfg.usage, "texture") == 0) {
+				descSet.usage = KGFX_DESCRIPTOR_USAGE_TEXTURE;
+			} else {
+				std::cerr << "Failed to parse " << descCfg.usage << " as a descriptor set usage" << std::endl;
+				return false;
+			}
+
+			descSet.size = descCfg.size;
+		}
+
 		p.description = desc;
 		parsed = p;
 		return true;
@@ -877,8 +992,8 @@ struct Context {
 			b.binding = binding.binding;
 		}
 
-		pipelineDesc.layout.pDescriptorSets = nullptr;
-		pipelineDesc.layout.descriptorSetCount = 0;
+		pipelineDesc.layout.pDescriptorSets = parsed.description.descriptorSets.data();
+		pipelineDesc.layout.descriptorSetCount = parsed.description.descriptorSets.size();
 		pipelineDesc.layout.pBindings = bindings.data();
 		pipelineDesc.layout.bindingCount = bindings.size();
 
@@ -910,7 +1025,7 @@ struct Context {
 	}
 
 	Context() = default;
-	Context(GLFWwindow* w) {
+	Context(kwnd_window_t* w) {
 		if (init(w) != 0) {
 			deinit();
 		}
@@ -948,41 +1063,8 @@ struct Context {
 		return 0;
 	}
 
-	static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-		if (key < 0 || key >= GLFW_KEY_LAST) {
-			return;
-		}
-
-		if (action == GLFW_PRESS) {
-			keys[key] = true;
-		} else if (action == GLFW_RELEASE) {
-			keys[key] = false;
-		}
-	}
-
-	static void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
-		if (button < 0 || button >= GLFW_MOUSE_BUTTON_LAST) {
-			return;
-		}
-
-		if (action == GLFW_PRESS) {
-			mouseButtons[button] = true;
-		} else if (action == GLFW_RELEASE) {
-			mouseButtons[button] = false;
-		}
-	}
-
-	static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
-		mouseX = xpos;
-		mouseY = ypos;
-	}
-
-	static void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
-		mouseZ = -yoffset;
-	}
-
 	static bool isKey(int key) {
-		if (key < 0 || key >= GLFW_KEY_LAST) {
+		if (key < 0 || key >= keys.size()) {
 			return false;
 		}
 
@@ -990,7 +1072,7 @@ struct Context {
 	}
 
 	static bool isKeyDown(int key) {
-		if (key < 0 || key >= GLFW_KEY_LAST) {
+		if (key < 0 || key >= keys.size()) {
 			return false;
 		}
 
@@ -998,7 +1080,7 @@ struct Context {
 	}
 
 	static bool isKeyUp(int key) {
-		if (key < 0 || key >= GLFW_KEY_LAST) {
+		if (key < 0 || key >= keys.size()) {
 			return false;
 		}
 
@@ -1006,7 +1088,7 @@ struct Context {
 	}
 
 	static bool isMouseButton(int button) {
-		if (button < 0 || button >= GLFW_MOUSE_BUTTON_LAST) {
+		if (button < 0 || button > mouseButtons.size()) {
 			return false;
 		}
 
@@ -1014,7 +1096,7 @@ struct Context {
 	}
 
 	static bool isMouseButtonDown(int button) {
-		if (button < 0 || button >= GLFW_MOUSE_BUTTON_LAST) {
+		if (button < 0 || button > mouseButtons.size()) {
 			return false;
 		}
 
@@ -1022,7 +1104,7 @@ struct Context {
 	}
 
 	static bool isMouseButtonUp(int button) {
-		if (button < 0 || button >= GLFW_MOUSE_BUTTON_LAST) {
+		if (button < 0 || button > mouseButtons.size()) {
 			return false;
 		}
 
@@ -1079,31 +1161,31 @@ struct Player : public GameObject {
 
 		vec3_mul_cross(right, forward, up);
 
-		if (Context::isKey(GLFW_KEY_W)) {
+		if (Context::isKey(KWND_KEYCODE_W)) {
 			movement[0] -= forward[0] * speed;
 			movement[2] -= forward[2] * speed;
 		}
 
-		if (Context::isKey(GLFW_KEY_S)) {
+		if (Context::isKey(KWND_KEYCODE_S)) {
 			movement[0] += forward[0] * speed;
 			movement[2] += forward[2] * speed;
 		}
 
-		if (Context::isKey(GLFW_KEY_A)) {
+		if (Context::isKey(KWND_KEYCODE_A)) {
 			movement[0] -= right[0] * speed;
 			movement[2] -= right[2] * speed;
 		}
 
-		if (Context::isKey(GLFW_KEY_D)) {
+		if (Context::isKey(KWND_KEYCODE_D)) {
 			movement[0] += right[0] * speed;
 			movement[2] += right[2] * speed;
 		}
 
-		if (Context::isKey(GLFW_KEY_SPACE)) {
+		if (Context::isKey(KWND_KEYCODE_SPACE)) {
 			movement[1] += speed;
 		}
 
-		if (Context::isKey(GLFW_KEY_LEFT_SHIFT)) {
+		if (Context::isKey(KWND_KEYCODE_SHIFT)) {
 			movement[1] -= speed;
 		}
 
@@ -1111,19 +1193,19 @@ struct Player : public GameObject {
 		position[1] += movement[1] * Context::deltaTime;
 		position[2] += movement[2] * Context::deltaTime;
 
-		if (Context::isKey(GLFW_KEY_LEFT)) {
+		if (Context::isKey(KWND_KEYCODE_LEFT)) {
 			rotation[1] -= 1.0f * Context::deltaTime;
 		}
 
-		if (Context::isKey(GLFW_KEY_RIGHT)) {
+		if (Context::isKey(KWND_KEYCODE_RIGHT)) {
 			rotation[1] += 1.0f * Context::deltaTime;
 		}
 
-		if (Context::isKey(GLFW_KEY_UP)) {
+		if (Context::isKey(KWND_KEYCODE_UP)) {
 			rotation[0] += 1.0f * Context::deltaTime;
 		}
 
-		if (Context::isKey(GLFW_KEY_DOWN)) {
+		if (Context::isKey(KWND_KEYCODE_DOWN)) {
 			rotation[0] -= 1.0f * Context::deltaTime;
 		}
 
@@ -1146,47 +1228,26 @@ struct Player : public GameObject {
 int main() {
 	std::filesystem::path originalPath = std::filesystem::current_path();
 
-	glfwSetErrorCallback([](int error, const char* description) {
-		std::cerr << "GLFW Error: " << description << std::endl;
-	});
-
-	if (!glfwInit()) {
-		std::cerr << "Failed to initialize GLFW" << std::endl;
-		return -1;
-	}
-
-	const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RED_BITS, mode->redBits);
-	glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
-	glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
-	glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-	glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
-	GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "zombies game", nullptr, nullptr);
-	if (window == nullptr) {
-		std::cerr << "Failed to create window" << std::endl;
-		glfwTerminate();
-		return -1;
-	}
-
-	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	glfwSetCursorPos(window, 0, 0);
-
 	std::filesystem::current_path(originalPath);
 	if (!std::filesystem::is_regular_file("config.koml")) {
 		std::cerr << "Failed to find config.koml" << std::endl << "Current path is " << std::filesystem::current_path() << std::endl;
 		return -1;
 	}
 
+	kwnd_window_t window;
+	if (kwnd_window_create(&window, "test", 800, 600) != KWND_SUCCESS) {
+		std::cerr << "Failed to create window" << std::endl;
+		return -1;
+	}
+
 	Context context;
-	context.windowWidth = mode->width;
-	context.windowHeight = mode->height;
+	context.windowWidth = window.width;
+	context.windowHeight = window.height;
 	context.isWindowed = false;
-	context.camera.aspectRatio = static_cast<float>(mode->width) / static_cast<float>(mode->height);
-	if (context.init(window) != 0) {
-		glfwDestroyWindow(window);
-		glfwTerminate();
+	context.camera.aspectRatio = static_cast<float>(window.width) / static_cast<float>(window.height);
+	if (context.init(&window) != 0) {
+		kwnd_window_destroy(&window);
+		std::cerr << "Failed to initialize context" << std::endl;
 		return 0;
 	}
 
@@ -1205,8 +1266,7 @@ int main() {
 	KGFXbuffer vertexBuffer = kgfxCreateBuffer(context.context, bufferDesc);
 	if (vertexBuffer == nullptr) {
 		std::cerr << "Failed to create vertex buffer" << std::endl;
-		glfwDestroyWindow(window);
-		glfwTerminate();
+		kwnd_window_destroy(&window);
 		return 0;
 	}
 
@@ -1214,14 +1274,13 @@ int main() {
 
 	bufferDesc.location = KGFX_BUFFER_LOCATION_CPU;
 	bufferDesc.usage = KGFX_BUFFER_USAGE_UNIFORM_BUFFER;
-	bufferDesc.size = sizeof(mat4x4);
+	bufferDesc.size = sizeof(mat4x4) * 3;
 	bufferDesc.pData = nullptr;
 
 	KGFXbuffer uniformBuffer = kgfxCreateBuffer(context.context, bufferDesc);
 	if (uniformBuffer == nullptr) {
 		std::cerr << "Failed to create uniform buffer" << std::endl;
-		glfwDestroyWindow(window);
-		glfwTerminate();
+		kwnd_window_destroy(&window);
 		return 0;
 	}
 
@@ -1230,8 +1289,7 @@ int main() {
 	MatrixUniform* matrixMapped = static_cast<MatrixUniform*>(kgfxBufferMap(context.context, uniformBuffer));
 	if (matrixMapped == nullptr) {
 		std::cerr << "Failed to map uniform buffer" << std::endl;
-		glfwDestroyWindow(window);
-		glfwTerminate();
+		kwnd_window_destroy(&window);
 		return 0;
 	}
 
@@ -1245,30 +1303,64 @@ int main() {
 	GameObjectRenderable triangle = GameObjectRenderable(renderable);
 	triangle.position[0] = 0;
 	triangle.position[1] = 0;
-	triangle.position[2] = -5;
+	triangle.position[2] = 5;
 	context.addGameObjectRenderable(triangle);
 
 	Player player = Player(context.camera);
 	context.addGameObject(player);
 
-	while (!glfwWindowShouldClose(window)) {
-		context.update();
-		glfwPollEvents();
+	kwnd_show_window(&window);
 
-		if (Context::isKey(GLFW_KEY_LEFT_CONTROL) && Context::isKeyDown(GLFW_KEY_Q)) {
+	while (!window.closed) {
+		context.update();
+		kwnd_update_window(&window);
+
+		Context::prevKeys = Context::keys;
+		Context::prevMouseButtons = Context::mouseButtons;
+
+		kwnd_event_t event;
+		while (kwnd_poll_event(&window, &event) == KWND_SUCCESS) {
+			if (event.type == KWND_EVENT_CLOSE) {
+				window.closed = true;
+				break;
+			} else if (event.type == KWND_EVENT_KEY) {
+				Context::keys[event.data.key.keycode] = event.data.key.pressed;
+			} else if (event.type == KWND_EVENT_MOUSE_MOVE) {
+				Context::deltaMouseX = event.data.mouse_pos.x - Context::mouseX;
+				Context::deltaMouseY = event.data.mouse_pos.y - Context::mouseY;
+				Context::mouseX = event.data.mouse_pos.x;
+				Context::mouseY = event.data.mouse_pos.y;
+			} else if (event.type == KWND_EVENT_SCROLL) {
+				Context::deltaMouseZ = event.data.scroll.vertical - Context::mouseZ;
+				Context::mouseZ = event.data.scroll.vertical;
+			} else if (event.type == KWND_EVENT_MOUSE_BUTTON) {
+				Context::mouseButtons[event.data.mouse_button.button] = event.data.mouse_button.pressed;
+			}
+		}
+
+		if (Context::isKey(KWND_KEYCODE_LEFT_CONTROL) && Context::isKeyDown(KWND_KEYCODE_Q)) {
 			break;
 		}
 
-		if (Context::isKeyDown(GLFW_KEY_F11)) {
+		if (Context::isKeyDown(KWND_KEYCODE_F11)) {
 			context.isWindowed = !context.isWindowed;
 
 			if (context.isWindowed) {
-				glfwSetWindowMonitor(window, nullptr, 10, 35, context.windowWidth, context.windowHeight, 0);
-				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
+				kwnd_disable_window_decoration(&window);
+				kwnd_resize_window(&window, 1920, 1080);
+				kwnd_position_window(&window, 0, 0);
 			} else {
-				glfwSetWindowMonitor(window, glfwGetPrimaryMonitor(), 0, 0, mode->width, mode->height, mode->refreshRate);
-				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+				kwnd_enable_window_decoration(&window);
+				kwnd_resize_window(&window, 800, 600);
+				kwnd_position_window(&window, 0, 0);
 			}
+		}
+
+		if (Context::isKey(KWND_KEYCODE_LEFT_CONTROL) && Context::isKeyDown(KWND_KEYCODE_R)) {
+			if (!context.reloadShaders()) {
+				break;
+			}
+			triangle.renderable.pipeline = context.defaultPipeline;
 		}
 
 		mat4x4_identity(matrixMapped->model);
@@ -1280,15 +1372,16 @@ int main() {
 		mat4x4_rotate_Z(matrixMapped->view, matrixMapped->view, -context.camera.rotation[2]);
 		mat4x4_translate_in_place(matrixMapped->view, context.camera.position[0], -context.camera.position[1], context.camera.position[2]);
 
-		mat4x4_perspective(matrixMapped->projection, context.camera.fov, context.camera.aspectRatio, context.camera.nearPlane, context.camera.farPlane);
-		matrixMapped->projection[1][1] *= -1;
+		mat4x4_ortho(matrixMapped->projection, -context.camera.aspectRatio, context.camera.aspectRatio, -1, 1, -100, 100);
+		//mat4x4_perspective(matrixMapped->projection, context.camera.fov * (M_PI / 180.0f), context.camera.aspectRatio, context.camera.nearPlane, context.camera.farPlane);
+		//matrixMapped->projection[1][1] *= -1;
 
 		kgfxCommandReset(context.context, context.commandList);
 
 		for (Renderable* r : context.renderables) {
 			r->calculateMVP(matrixMapped->model);
 			r->addSetupCommandsToList(context.context, context.commandList);
-			//kgfxCommandBindDescriptorSetBuffer(context.context, context.commandList, uniformBuffer, 0);
+			kgfxCommandBindDescriptorSetBuffer(context.context, context.commandList, uniformBuffer, 0);
 			r->addDrawCommandsToList(context.context, context.commandList);
 		}
 
@@ -1296,7 +1389,6 @@ int main() {
 		kgfxPresent(context.context);
 	}
 	
-	glfwDestroyWindow(window);
-	glfwTerminate();
+	kwnd_window_destroy(&window);
 	return 0;
 }
